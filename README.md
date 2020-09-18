@@ -1,4 +1,5 @@
 # Murmur2 Partitioner filter plugin for Embulk
+[![joker1007](https://circleci.com/gh/joker1007/embulk-filter-murmur2_partitioner.svg?style=svg)](https://circleci.com/gh/joker1007/embulk-filter-murmur2_partitioner)
 
 Add partition number that is calculated by Apache Kafka's murmur2 partitioner.
 
