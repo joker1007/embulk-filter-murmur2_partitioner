@@ -11,7 +11,7 @@ repositories {
 }
 
 group = "org.embulk.filter.murmur2_partitioner"
-version = "0.1.0"
+version = "0.2.0"
 description = "Murmur2 Partitioner filter plugin for Embulk"
 
 sourceCompatibility = 1.8
