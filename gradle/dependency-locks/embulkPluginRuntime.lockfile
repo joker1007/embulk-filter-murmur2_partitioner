@@ -1,0 +1,7 @@
+# This is a Gradle generated file for dependency locking.
+# Manual edits can break the build and are not advised.
+# This file is expected to be part of source control.
+com.github.luben:zstd-jni:1.4.4-7
+org.apache.kafka:kafka-clients:2.5.0
+org.lz4:lz4-java:1.7.1
+org.xerial.snappy:snappy-java:1.1.7.3

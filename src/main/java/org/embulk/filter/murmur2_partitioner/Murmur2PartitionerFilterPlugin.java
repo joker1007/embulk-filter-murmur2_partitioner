@@ -1,11 +1,22 @@
 package org.embulk.filter.murmur2_partitioner;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.KafkaAdminClient;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.PartitionInfo;
+import org.apache.kafka.common.serialization.BytesDeserializer;
+import org.apache.kafka.common.utils.Bytes;
 import org.embulk.config.*;
 import org.embulk.spi.*;
 import org.embulk.spi.type.LongType;
 import org.embulk.spi.type.StringType;
 import org.embulk.spi.type.Types;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.Properties;
 
 public class Murmur2PartitionerFilterPlugin
         implements FilterPlugin
@@ -21,14 +32,38 @@ public class Murmur2PartitionerFilterPlugin
         public String getPartitionColumn();
 
         @Config("partition_count")
-        public int getPartitionCount();
+        @ConfigDefault("null")
+        public Optional<Integer> getPartitionCount();
+        public void setPartitionCount(Optional<Integer> count);
+
+        @Config("topic")
+        @ConfigDefault("null")
+        public Optional<String> getTopic();
+
+        @Config("brokers")
+        @ConfigDefault("[]")
+        public List<String> getBrokers();
     }
 
     @Override
     public void transaction(ConfigSource config, Schema inputSchema,
-            FilterPlugin.Control control)
+            Control control)
     {
         PluginTask task = config.loadConfig(PluginTask.class);
+
+        if (!task.getPartitionCount().isPresent() && !task.getTopic().isPresent()) {
+            throw new ConfigException("Either `partition_count` or `topic` parameter are required.");
+        }
+
+        if (task.getTopic().isPresent()) {
+            Properties props = new Properties();
+            props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, task.getBrokers());
+            props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, BytesDeserializer.class);
+            props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, BytesDeserializer.class);
+            KafkaConsumer<Bytes, Bytes> consumer = new KafkaConsumer<>(props);
+            List<PartitionInfo> partitionInfos = consumer.partitionsFor(task.getTopic().get());
+            task.setPartitionCount(Optional.of(partitionInfos.size()));
+        }
 
         ImmutableList.Builder<Column> listBuilder = ImmutableList.builder();
         boolean hasPartitionColumn = false;
@@ -69,7 +104,7 @@ public class Murmur2PartitionerFilterPlugin
         return new PageOutput() {
             private PageReader pageReader = new PageReader(inputSchema);
             private PageBuilder pageBuilder = new PageBuilder(Exec.getBufferAllocator(), outputSchema, output);
-            private ColumnVisitorImpl columnVisitor = new ColumnVisitorImpl(task.getKeyColumn(), task.getPartitionCount(), partitionColumn, pageReader, pageBuilder);
+            private ColumnVisitorImpl columnVisitor = new ColumnVisitorImpl(task.getKeyColumn(), task.getPartitionCount().get(), partitionColumn, pageReader, pageBuilder);
 
             @Override
             public void add(Page page) {
