@@ -12,6 +12,10 @@ Add partition number that is calculated by Apache Kafka's murmur2 partitioner.
 - **key_column**: column as partition key (string, required)
 - **partition_column**: set partition number to this column. unless the column exists, add the column to output schema automatically. (string, default: `"partition"`)
 - **partition_count**: Partition Count (integer, required)
+- **broker**: kafka broker host and port (array(string), optional)
+- **topic**: target topic name (string, optional)
+
+If `broker` and `topic` are set, KafkaClient fetches partition count from the topic.
 
 ## Example
 
