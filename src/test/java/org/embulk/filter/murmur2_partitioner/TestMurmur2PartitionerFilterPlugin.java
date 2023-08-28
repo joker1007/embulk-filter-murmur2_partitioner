@@ -1,18 +1,19 @@
 package org.embulk.filter.murmur2_partitioner;
 
-import com.google.common.collect.ImmutableList;
 import com.salesforce.kafka.test.KafkaTestUtils;
 import com.salesforce.kafka.test.junit4.SharedKafkaTestResource;
-import org.embulk.EmbulkTestRuntime;
 import org.embulk.config.ConfigSource;
 import org.embulk.spi.*;
-import org.embulk.spi.TestPageBuilderReader.MockPageOutput;
 import org.embulk.spi.type.Type;
 import org.embulk.spi.type.Types;
 import org.embulk.spi.util.Pages;
+import org.embulk.test.EmbulkTestRuntime;
+import org.embulk.test.PageTestUtils;
+import org.embulk.test.TestPageBuilderReader;
 import org.embulk.test.TestingEmbulk;
 import org.junit.*;
 
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
@@ -34,7 +35,7 @@ public class TestMurmur2PartitionerFilterPlugin
 
     private ConfigSource configSource()
     {
-        return embulk.loadYamlResource("org/embulk/filter/murmur2_partitioner/config.yml");
+        return embulk.loadYamlResource("/org/embulk/filter/murmur2_partitioner/config.yml");
     }
 
     private Schema inputSchema()
@@ -55,13 +56,13 @@ public class TestMurmur2PartitionerFilterPlugin
     @After
     public void tearDown()
     {
-        kafkaTestUtils.getAdminClient().deleteTopics(ImmutableList.of("topicA"));
+        kafkaTestUtils.getAdminClient().deleteTopics(Collections.singletonList("topicA"));
     }
 
     @Test
     public void testFilter() {
         Schema inputSchema = inputSchema();
-        MockPageOutput output = new MockPageOutput();
+        TestPageBuilderReader.MockPageOutput output = new TestPageBuilderReader.MockPageOutput();
         FilterPlugin plugin = new Murmur2PartitionerFilterPlugin();
         List<Page> pages = PageTestUtils.buildPage(runtime.getBufferAllocator(), inputSchema, "hoge", "fuga", "foo", "bar");
 
@@ -98,14 +99,14 @@ public class TestMurmur2PartitionerFilterPlugin
     @Test
     public void testFilterWithTopicParam() {
         Schema inputSchema = inputSchema();
-        MockPageOutput output = new MockPageOutput();
+        TestPageBuilderReader.MockPageOutput output = new TestPageBuilderReader.MockPageOutput();
         FilterPlugin plugin = new Murmur2PartitionerFilterPlugin();
         List<Page> pages = PageTestUtils.buildPage(runtime.getBufferAllocator(), inputSchema, "hoge", "fuga", "foo", "bar");
 
         ConfigSource source = configSource();
         source.set("partition_count", null);
         source.set("topic", "topicA");
-        source.set("brokers", ImmutableList.of(sharedKafkaTestResource.getKafkaConnectString()));
+        source.set("brokers", Collections.singletonList(sharedKafkaTestResource.getKafkaConnectString()));
         plugin.transaction(source, inputSchema(), (taskSource, outputSchema) -> {
             outputColumns = outputSchema.getColumns();
 

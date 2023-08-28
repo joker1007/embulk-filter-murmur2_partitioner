@@ -1,8 +1,5 @@
 package org.embulk.filter.murmur2_partitioner;
 
-import com.google.common.collect.ImmutableList;
-import org.apache.kafka.clients.admin.AdminClientConfig;
-import org.apache.kafka.clients.admin.KafkaAdminClient;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
@@ -13,7 +10,14 @@ import org.embulk.spi.*;
 import org.embulk.spi.type.LongType;
 import org.embulk.spi.type.StringType;
 import org.embulk.spi.type.Types;
+import org.embulk.util.config.Config;
+import org.embulk.util.config.ConfigDefault;
+import org.embulk.util.config.ConfigMapper;
+import org.embulk.util.config.ConfigMapperFactory;
+import org.embulk.util.config.Task;
+import org.embulk.util.config.TaskMapper;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
@@ -45,11 +49,14 @@ public class Murmur2PartitionerFilterPlugin
         public List<String> getBrokers();
     }
 
+    private final ConfigMapperFactory configMapperFactory = ConfigMapperFactory.withDefault();
+
     @Override
     public void transaction(ConfigSource config, Schema inputSchema,
             Control control)
     {
-        PluginTask task = config.loadConfig(PluginTask.class);
+        ConfigMapper configMapper = configMapperFactory.createConfigMapper();
+        PluginTask task = configMapper.map(config, PluginTask.class);
 
         if (!task.getPartitionCount().isPresent() && !task.getTopic().isPresent()) {
             throw new ConfigException("Either `partition_count` or `topic` parameter are required.");
@@ -60,12 +67,13 @@ public class Murmur2PartitionerFilterPlugin
             props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, task.getBrokers());
             props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, BytesDeserializer.class);
             props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, BytesDeserializer.class);
-            KafkaConsumer<Bytes, Bytes> consumer = new KafkaConsumer<>(props);
-            List<PartitionInfo> partitionInfos = consumer.partitionsFor(task.getTopic().get());
-            task.setPartitionCount(Optional.of(partitionInfos.size()));
+            try(KafkaConsumer<Bytes, Bytes> consumer = new KafkaConsumer<>(props)) {
+                List<PartitionInfo> partitionInfos = consumer.partitionsFor(task.getTopic().get());
+                task.setPartitionCount(Optional.of(partitionInfos.size()));
+            }
         }
 
-        ImmutableList.Builder<Column> listBuilder = ImmutableList.builder();
+        List<Column> columns = new ArrayList<>();
         boolean hasPartitionColumn = false;
         for (Column column : inputSchema.getColumns()) {
             if (column.getName().equals(task.getKeyColumn())) {
@@ -78,22 +86,23 @@ public class Murmur2PartitionerFilterPlugin
                 hasPartitionColumn = true;
             }
 
-            listBuilder.add(column);
+            columns.add(column);
         }
         if (!hasPartitionColumn) {
-            listBuilder.add(new Column(inputSchema.getColumnCount(), task.getPartitionColumn(), Types.LONG));
+            columns.add(new Column(inputSchema.getColumnCount(), task.getPartitionColumn(), Types.LONG));
         }
 
-        Schema outputSchema = new Schema(listBuilder.build());
+        Schema outputSchema = new Schema(columns);
 
-        control.run(task.dump(), outputSchema);
+        control.run(task.toTaskSource(), outputSchema);
     }
 
     @Override
     public PageOutput open(TaskSource taskSource, Schema inputSchema,
             Schema outputSchema, PageOutput output)
     {
-        PluginTask task = taskSource.loadTask(PluginTask.class);
+        TaskMapper taskMapper = configMapperFactory.createTaskMapper();
+        PluginTask task = taskMapper.map(taskSource, PluginTask.class);
 
         Column partitionColumn = outputSchema.getColumns()
                 .stream()
@@ -102,9 +111,9 @@ public class Murmur2PartitionerFilterPlugin
                 .orElseThrow(() -> new RuntimeException("partition column is not found"));
 
         return new PageOutput() {
-            private PageReader pageReader = new PageReader(inputSchema);
-            private PageBuilder pageBuilder = new PageBuilder(Exec.getBufferAllocator(), outputSchema, output);
-            private ColumnVisitorImpl columnVisitor = new ColumnVisitorImpl(task.getKeyColumn(), task.getPartitionCount().get(), partitionColumn, pageReader, pageBuilder);
+            private final PageReader pageReader = new PageReader(inputSchema);
+            private final PageBuilder pageBuilder = new PageBuilder(Exec.getBufferAllocator(), outputSchema, output);
+            private final ColumnVisitorImpl columnVisitor = new ColumnVisitorImpl(task.getKeyColumn(), task.getPartitionCount().get(), partitionColumn, pageReader, pageBuilder);
 
             @Override
             public void add(Page page) {
@@ -129,11 +138,11 @@ public class Murmur2PartitionerFilterPlugin
 
     static class ColumnVisitorImpl implements ColumnVisitor
     {
-        private String keyColumn;
-        private int partitionCount;
-        private Column partitionColumn;
-        private PageReader pageReader;
-        private PageBuilder pageBuilder;
+        private final String keyColumn;
+        private final int partitionCount;
+        private final Column partitionColumn;
+        private final PageReader pageReader;
+        private final PageBuilder pageBuilder;
 
         ColumnVisitorImpl(String keyColumn, int partitionCount, Column partitionColumn, PageReader pageReader, PageBuilder pageBuilder) {
             this.keyColumn = keyColumn;
